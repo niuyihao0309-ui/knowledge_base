@@ -1,0 +1,97 @@
+# ============================================================
+# knowledge_base  .gitignore
+# 原则：只提交源代码与配置模板；密钥、运行时数据、图片视频一律不入库
+# ============================================================
+
+# ---------- 密钥与环境变量 ----------
+.env
+.env.*
+!.env.example
+
+# ---------- Python 虚拟环境 / 缓存 / 构建产物 ----------
+.venv/
+venv/
+env/
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------- IDE / 编辑器 ----------
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*~
+
+# ---------- AI 助手会话记忆（含内网地址等敏感信息）----------
+.workbuddy/
+
+# ---------- Docker 运行时数据（体积巨大，绝不入库）----------
+docker/volumes/
+docker/*.tar
+docker/*.tar.gz
+docker/*.tar.bz2
+docker/*.tgz
+
+# ---------- 图片 / 视频 / 音频（按要求不上传）----------
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.webp
+*.tif
+*.tiff
+*.svg
+*.ico
+*.heic
+*.raw
+*.mp4
+*.avi
+*.mov
+*.mkv
+*.webm
+*.flv
+*.wmv
+*.m4v
+*.mpg
+*.mpeg
+*.rmvb
+*.mp3
+*.wav
+*.flac
+*.m4a
+*.aac
+*.ogg
+
+# ---------- 压缩包 / 文档产物 / 日志 ----------
+*.zip
+*.7z
+*.rar
+*.pdf
+*.log
+logs/
+temp-files/
+
+# ---------- 备份文件 ----------
+*.bak*
+*.orig
+*.old
+
+# ---------- 本地诊断产物 ----------
+port_check_result.txt
+
+# ---------- 系统杂项 ----------
+.DS_Store
+Thumbs.db
+desktop.ini

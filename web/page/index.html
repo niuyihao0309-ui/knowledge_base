@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<!--
+  ============================================================================
+  统一入口门户（Portal / 工作台）
+  ----------------------------------------------------------------------------
+  作用：把「文档导入」和「知识问答」两个各自独立的页面，收在一个入口页后面。
+        用户打开本页 → 看到模块卡片 → 点哪张就进哪个功能。
+
+  路由归属（两个服务都挂了 GET / 返回本页，所以从哪个端口进来都能当门户用）：
+    · http://127.0.0.2:8001/  → 本页（文档导入所在服务）
+    · http://127.0.0.1:8003/  → 本页（知识问答所在服务）
+
+  【设计原则：尽量减少静态元素】
+    1) 页面里没有任何一张图片资源（零 png/jpg/svg 文件），图标一律用内联 SVG；
+    2) 没有任何一段写死的卡片 HTML，全部由文件末尾的 PORTAL_CONFIG 渲染出来；
+    3) 文案、名称、描述、链接、主题色、图标 —— 全部是数据，不是标签；
+    4) 想要"彻底动态"时，把 PORTAL_CONFIG.configUrl 指向后端接口即可，
+       接口返回同结构的 JSON 覆盖本地配置，前端代码一行都不用改。
+
+  【怎么用】
+    · 直接双击打开：能看到界面，点卡片会跳到对应的 http 地址（绝对地址已配好）。
+    · 挂到后端（推荐）：任一 FastAPI 里已有 `GET /` 返回本页（见 web/api/*_service.py 的 portal()），
+      访问 http://127.0.0.2:8001/ 或 http://127.0.0.1:8003/ 就是门户。
+    · 注意 resolveHref 的端口判定：门户挂在 8003 时，"文档导入"卡片必须走 8001 的绝对地址，
+      否则会跳成 127.0.0.1:8003/import.html → 404。
+  ============================================================================
+-->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>统一入口</title>
+<style>
+/* ---------------------------------------------------------------------------
+   设计 token —— 沿用 import.html / chat.html 那套企业蓝体系，保证三者视觉一致
+   --------------------------------------------------------------------------- */
+:root {
+  --bg-top: #F5F6F8;
+  --bg-bottom: #ECEEF2;
+  --surface: #FFFFFF;
+  --ink: #171C25;
+  --ink-2: #4D5661;
+  --ink-3: #78818D;
+  --border: #E2E5EA;
+  --accent: #2E5591;          /* 默认主题色，卡片没指定 accent 时用它 */
+  --r-md: 10px;
+  --r-lg: 14px;
+  --shadow-card: 0 1px 2px rgba(16,24,40,.04), 0 2px 8px rgba(16,24,40,.05);
+  --font: "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --dur: 190ms;
+}
+
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--ink);
+  /* 纯 CSS 背景，不引入任何图片 */
+  background:
+    radial-gradient(900px 420px at 50% -120px, #FFFFFF 0%, rgba(255,255,255,0) 70%),
+    linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------------------------- 页面骨架 ------------------------------------ */
+/* 整页垂直水平居中；内容宽度由内部 .portal-inner 控制，方便以后改版 */
+.portal {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  padding: 64px 24px;
+}
+
+.portal-inner { width: 100%; max-width: 640px; }
+
+/* ---------------------------- 头部（标题/副标题）-------------------------- */
+.portal-head { text-align: center; margin-bottom: 34px; }
+
+.portal-title {
+  margin: 0 0 10px;
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: .5px;
+  color: var(--ink);
+}
+
+.portal-sub {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--ink-3);
+}
+
+/* ---------------------------- 卡片网格 ----------------------------------- */
+/* auto-fit + minmax：宽度够就并排，窄屏自动换行，不用写媒体查询 */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 20px;
+}
+
+/* 卡片整体是一个 <a>，所以整块都可点、可 Tab 聚焦、可回车触发 */
+.card {
+  position: relative;
+  display: grid;
+  grid-template-rows: auto auto auto;
+  gap: 14px;
+  padding: 28px 24px 26px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-card);
+  text-decoration: none;
+  color: inherit;
+  /* --accent / --accent-soft 由 JS 按配置注入到每个卡片上 */
+  transition: transform var(--dur) ease, box-shadow var(--dur) ease,
+              border-color var(--dur) ease;
+  animation: rise 380ms cubic-bezier(.22,.61,.36,1) both;
+}
+
+@keyframes rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.card:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent-soft);
+  box-shadow: 0 10px 28px rgba(16,24,40,.10);
+}
+
+.card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+/* 图标徽章：底色 = 卡片主题色，图形用内联 SVG 的 currentColor */
+.card-badge {
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 14px;
+  background: var(--accent);
+  color: #FFFFFF;
+}
+.card-badge svg { width: 24px; height: 24px; display: block; }
+
+.card-name { font-size: 18px; font-weight: 600; color: var(--ink); }
+
+.card-desc { font-size: 13.5px; color: var(--ink-3); }
+
+/* 右下角箭头：静态装饰，hover 时点亮并右移一点点 */
+.card-arrow {
+  position: absolute;
+  right: 18px;
+  bottom: 18px;
+  width: 16px;
+  height: 16px;
+  color: var(--ink-3);
+  opacity: .35;
+  transition: opacity var(--dur) ease, transform var(--dur) ease, color var(--dur) ease;
+}
+.card:hover .card-arrow { opacity: 1; color: var(--accent); transform: translateX(3px); }
+
+/* ---------------------------- 底部（可选）-------------------------------- */
+/* 只有 PORTAL_CONFIG.footer 配了内容才渲染 */
+.portal-foot {
+  display: flex;
+  justify-content: center;
+  margin-top: 30px;
+}
+.foot-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  font-size: 13.5px;
+  font-family: inherit;
+  color: var(--ink-2);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  text-decoration: none;
+  cursor: pointer;
+  transition: border-color var(--dur) ease, color var(--dur) ease;
+}
+.foot-btn:hover { border-color: var(--ink-3); color: var(--ink); }
+.foot-btn svg { width: 14px; height: 14px; }
+
+/* 无障碍：用户系统里开了"减少动态效果"就关掉动画 */
+@media (prefers-reduced-motion: reduce) {
+  .card { animation: none; }
+  .card, .card-arrow { transition: none; }
+}
+</style>
+</head>
+<body>
+
+<!-- 页面只有三块空容器，内容全部由 JS 填进去 —— 这就是"减少静态元素" -->
+<main class="portal">
+  <div class="portal-inner">
+    <header class="portal-head">
+      <h1 class="portal-title" id="portalTitle"></h1>
+      <p class="portal-sub" id="portalSubtitle"></p>
+    </header>
+    <section class="grid" id="cardGrid" aria-label="功能入口"></section>
+    <footer class="portal-foot" id="portalFoot"></footer>
+  </div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ==========================================================================
+     ★★★ 唯一需要改的地方：入口配置 ★★★
+     --------------------------------------------------------------------------
+     以后加功能、改名、换端口，只动这个对象，不用碰上面的 HTML/CSS。
+     ========================================================================== */
+  var PORTAL_CONFIG = {
+    // ---- 页面标题区 ----
+    title: '统一入口',                                // 大标题
+    subtitle: '连接数据、知识与文档处理',               // 副标题（不想要就写空字符串）
+
+    // ---- 彻底动态：留空则不请求；填上后端接口地址就用接口返回的 JSON 覆盖本地配置 ----
+    // 例如 configUrl: '/portal/config'
+    configUrl: '',
+
+    // ---- 功能卡片列表：想加"更多智能体"，往数组里再加一条就行 ----
+    modules: [
+      {
+        id: 'import',                                            // 唯一标识，用于调试/埋点
+        name: '文档导入',                                          // 卡片标题
+        desc: '上传 PDF / Markdown，解析入库构建知识库',             // 卡片描述
+        // href：绝对地址，双击打开本文件时也能正常跳转
+        href: 'http://127.0.0.2:8001/import.html',
+        // path：同源相对路径。仅当"本页所在端口"等于下面的 port 时才用它（见 resolveHref）
+        path: '/import.html',
+        port: '8001',                                             // 该功能所在服务的端口
+        accent: '#2E5591',                                        // 卡片主题色（徽章底色 / hover 边框 / 箭头）
+        // 图标：内联 SVG 的路径数据，零图片资源
+        icon: '<path d="M12 16V4"/><path d="m8 8 4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>'
+      },
+      {
+        id: 'query',
+        name: '知识问答',
+        desc: '基于已入库文档作答，回答带检索进度与原文配图',
+        href: 'http://127.0.0.1:8003/chat.html',
+        path: '/chat.html',
+        port: '8003',
+        accent: '#1F8A70',
+        icon: '<path d="M21 12a8 8 0 0 1-11.4 7.2L4 21l1.8-5.1A8 8 0 1 1 21 12z"/><path d="M9 11h6M9 14h4"/>'
+      }
+    ],
+
+    // ---- 底部可选按钮：不想要就写 null ----
+    // footer: { text: '更多智能体', href: '#' }
+    footer: null,
+
+    // ---- 跳转方式：'_self' 本页跳转（默认）；'_blank' 新标签页打开 ----
+    target: '_self'
+  };
+  /* ==========================================================================
+     ★★★ 配置到此结束，下面是通用渲染逻辑，正常不用改 ★★★
+     ========================================================================== */
+
+
+  /* ---------------------------------------------------------------- 小工具 */
+
+  // #RRGGBB → rgba(r,g,b,a)，用于从主题色派生浅色边框
+  function hexToRgba(hex, alpha) {
+    var h = String(hex || '#2E5591').replace('#', '');
+    if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];   // 支持 #abc 简写
+    var n = parseInt(h, 16);                                            // 转成整数
+    return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + alpha + ')';
+  }
+
+  // 页面是否通过 http(s) 提供服务（file:// 直开时不算）
+  function isServedOverHttp() {
+    return /^https?:$/.test(location.protocol);
+  }
+
+  // 决定一个模块最终跳到哪：
+  // · 页面走 file:// 直开 → 只能用绝对地址 href
+  // · 页面走 http，且"当前端口 == 该模块服务的端口" → 用同源相对路径 path（不用写死 IP）
+  // · 否则（门户挂在 8003，但导入服务在 8001）→ 必须用绝对地址 href，否则会 404
+  function resolveHref(m) {
+    if (m.path && isServedOverHttp() && String(location.port) === String(m.port)) {
+      return m.path;
+    }
+    return m.href || '#';
+  }
+
+  // 转义：配置里如果有人写了 < > & 之类，不至于把结构搞坏
+  function esc(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  /* ---------------------------------------------------------------- 渲染 */
+
+  // 单张卡片的 HTML 模板
+  function cardHtml(m, index) {
+    var accent = m.accent || '#2E5591';
+    return '' +
+      '<a class="card" href="' + esc(resolveHref(m)) + '"' +
+      '   target="' + esc(PORTAL_CONFIG.target || '_self') + '"' +
+      '   style="--accent:' + esc(accent) + ';--accent-soft:' + hexToRgba(accent, .28) + ';animation-delay:' + (index * 70) + 'ms"' +
+      '   data-module="' + esc(m.id || '') + '">' +
+      '  <span class="card-badge" aria-hidden="true">' +
+      '    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"' +
+      '         stroke-linecap="round" stroke-linejoin="round">' + (m.icon || '') + '</svg>' +
+      '  </span>' +
+      '  <span class="card-name">' + esc(m.name) + '</span>' +
+      '  <span class="card-desc">' + esc(m.desc) + '</span>' +
+      '  <svg class="card-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"' +
+      '       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '    <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>' +
+      '  </svg>' +
+      '</a>';
+  }
+
+  // 把整份配置画到页面上（可重复调用，会被"配置接口"再次触发以刷新内容）
+  function render(cfg) {
+    document.title = cfg.title || '统一入口';
+
+    document.getElementById('portalTitle').textContent = cfg.title || '';
+    var sub = document.getElementById('portalSubtitle');
+    sub.textContent = cfg.subtitle || '';
+    sub.style.display = cfg.subtitle ? '' : 'none';            // 没副标题就别留空行
+
+    var grid = document.getElementById('cardGrid');
+    grid.innerHTML = (cfg.modules || []).map(cardHtml).join('');
+
+    // 底部按钮：配了才渲染
+    var foot = document.getElementById('portalFoot');
+    if (cfg.footer && cfg.footer.text) {
+      foot.innerHTML =
+        '<a class="foot-btn" href="' + esc(cfg.footer.href || '#') + '">' +
+        esc(cfg.footer.text) +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"' +
+        ' stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>' +
+        '</a>';
+      foot.style.display = '';
+    } else {
+      foot.innerHTML = '';
+      foot.style.display = 'none';
+    }
+  }
+
+  /* ---------------------------------------------------------------- 启动 */
+
+  // 1) 先用本地配置渲染，保证"接口挂了页面也照常能用"
+  render(PORTAL_CONFIG);
+
+  // 2) 如果配了后端配置接口，再拉一次覆盖（失败就静默保持本地配置）
+  if (PORTAL_CONFIG.configUrl) {
+    fetch(PORTAL_CONFIG.configUrl, { headers: { 'Accept': 'application/json' } })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (remote) { if (remote && remote.modules) render(remote); })
+      .catch(function () { /* 静默降级：继续用本地 PORTAL_CONFIG */ });
+  }
+})();
+</script>
+</body>
+</html>
