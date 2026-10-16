@@ -3,244 +3,525 @@
   ============================================================================
   统一入口门户（Portal / 工作台）
   ----------------------------------------------------------------------------
-  作用：把「文档导入」和「知识问答」两个各自独立的页面，收在一个入口页后面。
-        用户打开本页 → 看到模块卡片 → 点哪张就进哪个功能。
+  版式来源：桌面稿 unified-entry-final.html（顶栏 → Hero → 核心能力卡片 → 页脚）
+  工程逻辑：沿用原 index.html 的 PORTAL_CONFIG 数据驱动架构
 
-  路由归属（两个服务都挂了 GET / 返回本页，所以从哪个端口进来都能当门户用）：
+  路由归属（两个服务都挂了 GET / 返回本页，从哪个端口进来都能当门户用）：
     · http://127.0.0.2:8005/  → 本页（文档导入所在服务）
     · http://127.0.0.1:8003/  → 本页（知识问答所在服务）
 
-  【设计原则：尽量减少静态元素】
-    1) 页面里没有任何一张图片资源（零 png/jpg/svg 文件），图标一律用内联 SVG；
-    2) 没有任何一段写死的卡片 HTML，全部由文件末尾的 PORTAL_CONFIG 渲染出来；
-    3) 文案、名称、描述、链接、主题色、图标 —— 全部是数据，不是标签；
-    4) 想要"彻底动态"时，把 PORTAL_CONFIG.configUrl 指向后端接口即可，
-       接口返回同结构的 JSON 覆盖本地配置，前端代码一行都不用改。
+  【保留了原 index.html 的三项工程能力，一条没丢】
+    1) PORTAL_CONFIG 单一配置源 —— 加模块 / 改名 / 换端口只动这一个对象；
+    2) resolveHref() 端口判定 —— 门户挂在 8003 时，"文档导入"卡必须走 8005 的绝对
+       地址，否则会跳成 127.0.0.1:8003/import.html → 404；
+    3) stampHtml() 配置指纹 —— 页脚那行小字，用来一眼识别"手上这份页面是不是最新
+       配置"（浏览器缓存 / 恢复标签页会还原旧渲染快照，卡片 href 还停在老端口）。
 
-  【怎么用】
-    · 直接双击打开：能看到界面，点卡片会跳到对应的 http 地址（绝对地址已配好）。
-    · 挂到后端（推荐）：任一 FastAPI 里已有 `GET /` 返回本页（见 web/api/*_service.py 的 portal()），
-      访问 http://127.0.0.2:8005/ 或 http://127.0.0.1:8003/ 就是门户。
-    · 注意 resolveHref 的端口判定：门户挂在 8003 时，"文档导入"卡片必须走 8005 的绝对地址，
-      否则会跳成 127.0.0.1:8003/import.html → 404。
+  【设计原则：尽量减少静态元素】
+    页面零图片资源（没有任何 png/jpg 文件），图标一律内联 SVG；
+    卡片 HTML 全部由文件末尾的 PORTAL_CONFIG 渲染出来，文案 / 链接 / 主题色都是数据。
   ============================================================================
 -->
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>统一入口</title>
+<meta name="description" content="从外部文档导入到智能问答，所有知识操作在同一入口完成。">
 <style>
 /* ---------------------------------------------------------------------------
-   设计 token —— 沿用 import.html / chat.html 那套企业蓝体系，保证三者视觉一致
+   Design tokens —— 沿用桌面稿那套「浅底 + 衬线标题 + 蓝色强调」体系
    --------------------------------------------------------------------------- */
 :root {
-  --bg-top: #F5F6F8;
-  --bg-bottom: #ECEEF2;
-  --surface: #FFFFFF;
-  --ink: #171C25;
-  --ink-2: #4D5661;
-  --ink-3: #78818D;
-  --border: #E2E5EA;
-  --accent: #2E5591;          /* 默认主题色，卡片没指定 accent 时用它 */
-  --r-md: 10px;
-  --r-lg: 14px;
-  --shadow-card: 0 1px 2px rgba(16,24,40,.04), 0 2px 8px rgba(16,24,40,.05);
-  --font: "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  color-scheme: light;
+
+  /* 色板 */
+  --bg:            #f8f9fb;
+  --surface:       #ffffff;
+  --surface-2:     #fbfcfe;
+  --fg:            #111827;
+  --muted:         #6b7280;
+  --border:        #e5e7eb;
+  --accent:        #2563eb;
+  --accent-ink:    #1d4ed8;
+  --accent-soft:   rgba(37, 99, 235, .10);
+  --accent-line:   rgba(37, 99, 235, .32);
+
+  /* 字体：衬线做标题，系统无衬线做正文 */
+  --font-display: "Iowan Old Style", "Charter", "Palatino Linotype", Georgia, "Times New Roman", serif;
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "SF Mono", Menlo, Consolas, monospace;
+
+  /* 字号 —— 流体 */
+  --fs-h1:   clamp(2.5rem, 1.35rem + 4.6vw, 4.5rem);    /* 40 → 72 */
+  --fs-h2:   clamp(1.6rem, 1.1rem + 2vw, 2.4rem);       /* 25.6 → 38.4 */
+  --fs-h3:   clamp(1.125rem, 1rem + .5vw, 1.375rem);    /* 18 → 22 */
+  --fs-lead: clamp(1rem, .94rem + .35vw, 1.1875rem);    /* 16 → 19 */
+  --fs-body: 1rem;
+  --fs-sm:   .9375rem;
+  --fs-meta: .8125rem;
+
+  /* 版式尺寸 */
+  --container:  1120px;
+  --gutter:     clamp(20px, 5vw, 48px);
+  --section-y:  clamp(64px, 8vw, 120px);
+  --nav-h:      64px;
+
+  --radius-sm: 10px;
+  --radius:    14px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+
+  --shadow-1: 0 1px 2px rgba(15, 23, 42, .04), 0 1px 3px rgba(15, 23, 42, .05);
+  --shadow-3: 0 28px 56px -24px rgba(37, 99, 235, .34), 0 4px 14px -6px rgba(15, 23, 42, .10);
+
+  --ease: cubic-bezier(.2, .7, .3, 1);
   --dur: 190ms;
 }
 
-* { box-sizing: border-box; }
-html, body { min-height: 100%; }
+*, *::before, *::after { box-sizing: border-box; }
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+  background: var(--bg);
+}
 
 body {
   margin: 0;
-  font-family: var(--font);
-  font-size: 15px;
+  min-height: 100vh;
+  color: var(--fg);
+  background: var(--bg);
+  font-family: var(--font-body);
+  font-size: var(--fs-body);
   line-height: 1.6;
-  color: var(--ink);
-  /* 纯 CSS 背景，不引入任何图片 */
-  background:
-    radial-gradient(900px 420px at 50% -120px, #FFFFFF 0%, rgba(255,255,255,0) 70%),
-    linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* ---------------------------- 页面骨架 ------------------------------------ */
-/* 整页垂直水平居中；内容宽度由内部 .portal-inner 控制，方便以后改版 */
-.portal {
-  min-height: 100vh;
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+p { margin: 0; text-wrap: pretty; }
+a { color: inherit; text-decoration: none; }
+svg { display: block; }
+
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 6px; }
+::selection { background: rgba(37, 99, 235, .18); }
+
+/* --------------------------- 背景氛围层（纯装饰，不参与布局） ---------------- */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(58rem 38rem at 50% -12%, rgba(37, 99, 235, .17), transparent 62%),
+    radial-gradient(42rem 30rem at 104% -4%, rgba(124, 58, 237, .11), transparent 60%),
+    radial-gradient(36rem 26rem at -8% 22%, rgba(14, 165, 233, .09), transparent 62%),
+    linear-gradient(180deg, var(--bg) 0%, var(--bg) 68%, #eff3f9 100%);
+}
+.aurora::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(to right, rgba(15, 23, 42, .05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(15, 23, 42, .05) 1px, transparent 1px);
+  background-size: 64px 64px;
+  -webkit-mask-image: radial-gradient(72% 52% at 50% 0%, #000 0%, transparent 100%);
+          mask-image: radial-gradient(72% 52% at 50% 0%, #000 0%, transparent 100%);
+}
+
+header, main, footer { position: relative; z-index: 1; }
+
+.container {
+  width: 100%;
+  max-width: var(--container);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+.meta {
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  color: var(--muted);
+  letter-spacing: .01em;
+}
+
+/* ================================ 顶栏 =================================== */
+.topnav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  min-height: var(--nav-h);
+  background: rgba(248, 249, 251, .78);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+          backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: var(--nav-h);
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  font-family: var(--font-display);
+  font-size: 1.125rem;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+}
+.brand-mark {
+  width: 26px;
+  height: 26px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  color: #fff;
+  background: linear-gradient(150deg, #3b82f6, var(--accent-ink));
+  box-shadow: 0 2px 6px -2px rgba(37, 99, 235, .6);
+}
+.brand-mark svg { width: 15px; height: 15px; }
+
+.nav-links { display: flex; align-items: center; gap: clamp(16px, 3vw, 34px); }
+.nav-links a {
+  position: relative;
+  padding-block: 4px;
+  font-size: var(--fs-sm);
+  color: var(--muted);
+  transition: color var(--dur) var(--ease);
+}
+.nav-links a::after {
+  content: "";
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 1.5px;
+  border-radius: 2px;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 220ms var(--ease);
+}
+.nav-links a:hover { color: var(--fg); }
+.nav-links a:hover::after { transform: scaleX(1); }
+
+/* ================================= Hero ================================== */
+.hero {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: clamp(400px, 56vh, 600px);
+  padding-block: clamp(64px, 11vw, 132px);
+}
+.hero-inner {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 40px;
-  padding: 64px 24px;
+  gap: 24px;
 }
 
-.portal-inner { width: 100%; max-width: 640px; }
-
-/* ---------------------------- 头部（标题/副标题）-------------------------- */
-.portal-head { text-align: center; margin-bottom: 34px; }
-
-.portal-title {
-  margin: 0 0 10px;
-  font-size: 34px;
-  font-weight: 700;
-  letter-spacing: .5px;
-  color: var(--ink);
+.eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--accent-line);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+}
+.eyebrow::before {
+  content: "";
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, .16);
 }
 
-.portal-sub {
-  margin: 0;
-  font-size: 14.5px;
-  color: var(--ink-3);
+.hero-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-h1);
+  font-weight: 600;
+  line-height: 1.05;
+  letter-spacing: -.022em;
+  max-width: 20ch;
+}
+.hero-lead {
+  font-size: var(--fs-lead);
+  line-height: 1.65;
+  color: var(--muted);
+  max-width: 46ch;
 }
 
-/* ---------------------------- 卡片网格 ----------------------------------- */
-/* auto-fit + minmax：宽度够就并排，窄屏自动换行，不用写媒体查询 */
-.grid {
+/* ================================ 区块 =================================== */
+.section { padding-block: var(--section-y); }
+.section + .section { border-top: 1px solid var(--border); }
+
+.section-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  margin-bottom: clamp(32px, 5vw, 56px);
+}
+.section-head h2 {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  line-height: 1.15;
+  letter-spacing: -.018em;
+}
+
+/* =============================== 入口卡 ================================== */
+.entry-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: clamp(16px, 2vw, 24px);
 }
 
-/* 卡片整体是一个 <a>，所以整块都可点、可 Tab 聚焦、可回车触发 */
-.card {
+/* 整块是 <a>：可点、可 Tab 聚焦、可回车触发 */
+.entry-card {
   position: relative;
-  display: grid;
-  grid-template-rows: auto auto auto;
-  gap: 14px;
-  padding: 28px 24px 26px;
-  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-height: clamp(230px, 26vw, 280px);
+  padding: clamp(24px, 2.6vw, 34px);
   border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-card);
-  text-decoration: none;
-  color: inherit;
-  /* --accent / --accent-soft 由 JS 按配置注入到每个卡片上 */
-  transition: transform var(--dur) ease, box-shadow var(--dur) ease,
-              border-color var(--dur) ease;
-  animation: rise 380ms cubic-bezier(.22,.61,.36,1) both;
+  border-radius: var(--radius-lg);
+  background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+  transition: transform .24s var(--ease), border-color .24s var(--ease),
+              box-shadow .24s var(--ease);
+  /* 只填 backwards：保留入场延迟期的初始态，动画结束后让位给 hover 的 transform。
+     若写成 both/forwards，动画终帧会一直覆盖 hover 位移，卡片就抬不起来。 */
+  animation: rise 380ms cubic-bezier(.22, .61, .36, 1) backwards;
 }
-
 @keyframes rise {
   from { opacity: 0; transform: translateY(10px); }
   to   { opacity: 1; transform: translateY(0); }
 }
-
-.card:hover {
-  transform: translateY(-3px);
-  border-color: var(--accent-soft);
-  box-shadow: 0 10px 28px rgba(16,24,40,.10);
+.entry-card:hover {
+  transform: translateY(-4px);
+  border-color: var(--accent-line);
+  box-shadow: var(--shadow-3);
 }
-
-.card:focus-visible {
+.entry-card:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
 }
+/* 顶部高光条：hover 时从中心展开 */
+.entry-card::before {
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  transform: scaleX(0);
+  transition: transform .3s var(--ease);
+}
+.entry-card:hover::before { transform: scaleX(1); }
 
-/* 图标徽章：底色 = 卡片主题色，图形用内联 SVG 的 currentColor */
-.card-badge {
-  width: 48px;
-  height: 48px;
+.entry-icon {
+  width: 46px;
+  height: 46px;
+  flex: none;
   display: grid;
   place-items: center;
-  border-radius: 14px;
+  border-radius: var(--radius);
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+}
+.entry-icon svg { width: 22px; height: 22px; }
+
+.entry-name {
+  display: block;
+  font-size: var(--fs-h3);
+  font-weight: 600;
+  letter-spacing: -.008em;
+  line-height: 1.35;
+}
+.entry-desc {
+  display: block;
+  font-size: var(--fs-sm);
+  line-height: 1.65;
+  color: var(--muted);
+  max-width: 34ch;
+}
+
+.entry-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: auto;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--fg);
+}
+.entry-arrow {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 50%;
+  color: var(--accent);
+  background: var(--accent-soft);
+  transition: transform .24s var(--ease), background .24s var(--ease), color .24s var(--ease);
+}
+.entry-arrow svg { width: 15px; height: 15px; }
+.entry-card:hover .entry-arrow {
+  transform: translateX(3px);
   background: var(--accent);
-  color: #FFFFFF;
+  color: #fff;
 }
-.card-badge svg { width: 24px; height: 24px; display: block; }
 
-.card-name { font-size: 18px; font-weight: 600; color: var(--ink); }
-
-.card-desc { font-size: 13.5px; color: var(--ink-3); }
-
-/* 右下角箭头：静态装饰，hover 时点亮并右移一点点 */
-.card-arrow {
-  position: absolute;
-  right: 18px;
-  bottom: 18px;
-  width: 16px;
-  height: 16px;
-  color: var(--ink-3);
-  opacity: .35;
-  transition: opacity var(--dur) ease, transform var(--dur) ease, color var(--dur) ease;
+/* ================================ 页脚 =================================== */
+.page-foot {
+  margin-top: 64px;
+  padding-block: clamp(32px, 4vw, 48px);
+  border-top: 1px solid var(--border);
+  background: linear-gradient(180deg, transparent, rgba(255, 255, 255, .7));
 }
-.card:hover .card-arrow { opacity: 1; color: var(--accent); transform: translateX(3px); }
+.foot-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: var(--fs-meta);
+  color: var(--muted);
+}
 
-/* ---------------------------- 底部（可选）-------------------------------- */
-/* 只有 PORTAL_CONFIG.footer 配了内容才渲染 */
+/* --------------------------- 配置指纹（诊断用） ---------------------------- */
+/* 页脚永远显示的一行小字：本页从哪来 + 每张卡片实际会跳到哪。
+   浏览器缓存 / 「恢复上次标签页」可能还原旧渲染快照，那时卡片 href 还停在老端口，
+   用户点了就跳死链却看不出页面是旧的。有这行指纹，端口对不上就能立刻判定，
+   Ctrl+F5 刷新即可拿到最新配置。纯诊断信息，不影响功能。 */
 .portal-foot {
   display: flex;
-  justify-content: center;
-  margin-top: 30px;
-}
-.foot-btn {
-  display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  gap: 6px;
-  padding: 9px 18px;
-  font-size: 13.5px;
-  font-family: inherit;
-  color: var(--ink-2);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  text-decoration: none;
-  cursor: pointer;
-  transition: border-color var(--dur) ease, color var(--dur) ease;
+  gap: 14px;
+  margin-top: 20px;
 }
-.foot-btn:hover { border-color: var(--ink-3); color: var(--ink); }
-.foot-btn svg { width: 14px; height: 14px; }
-
-/* --------------------------- 配置指纹（诊断用）----------------------------- */
-/* 页脚永远显示的一行小字：本页从哪来 + 每张卡片实际会跳到哪。
-   为什么需要它：
-     浏览器缓存 / 「恢复上次标签页」可能把旧渲染快照还原出来，
-     那时卡片 href 还停在老端口，用户点了就跳死链，却完全看不出页面是旧的。
-     有了这行指纹，只要显示的端口和你期望的不一致（比如停在已经废弃的老端口），
-     就能立刻判定"手上这份是旧页面"，Ctrl+F5 刷新即可拿到最新配置。
-   纯诊断信息，不影响任何功能，觉得啰嗦可以删掉 render() 里的 stampHtml 调用。 */
 .portal-stamp {
-  margin-top: 16px;
+  font-family: var(--font-mono);
   font-size: 11.5px;
   line-height: 1.9;
-  color: var(--ink-3);
+  color: var(--muted);
   text-align: center;
   word-break: break-word;
 }
 .portal-stamp code {
-  font-family: Consolas, "SF Mono", ui-monospace, monospace;
+  font-family: var(--font-mono);
   font-size: 11px;
-  color: var(--ink-2);
-  background: rgba(16, 24, 40, .05);
+  color: #4b5563;
+  background: rgba(17, 24, 39, .05);
   border: 1px solid var(--border);
   border-radius: 4px;
   padding: 1px 6px;
   white-space: nowrap;
 }
 
-/* 无障碍：用户系统里开了"减少动态效果"就关掉动画 */
+.foot-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  font-size: var(--fs-sm);
+  font-family: inherit;
+  color: var(--fg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease);
+}
+.foot-btn:hover { border-color: var(--fg); }
+.foot-btn svg { width: 14px; height: 14px; }
+
+/* ============================== 响应式 =================================== */
+@media (max-width: 860px) {
+  .entry-grid { grid-template-columns: minmax(0, 1fr); }
+  .entry-card { min-height: 0; }
+  .entry-desc { max-width: none; }
+}
+
+@media (max-width: 560px) {
+  .brand-mark { display: none; }
+  .nav-links { gap: 20px; }
+  .hero { min-height: auto; }
+  .foot-inner { flex-direction: column; align-items: flex-start; gap: 8px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .card { animation: none; }
-  .card, .card-arrow { transition: none; }
+  html { scroll-behavior: auto; }
+  .entry-card { animation: none; }
+  .entry-card, .entry-card::before, .entry-arrow, .nav-links a::after { transition: none; }
 }
 </style>
 </head>
 <body>
 
-<!-- 页面只有三块空容器，内容全部由 JS 填进去 —— 这就是"减少静态元素" -->
-<main class="portal">
-  <div class="portal-inner">
-    <header class="portal-head">
-      <h1 class="portal-title" id="portalTitle"></h1>
-      <p class="portal-sub" id="portalSubtitle"></p>
-    </header>
-    <section class="grid" id="cardGrid" aria-label="功能入口"></section>
-    <footer class="portal-foot" id="portalFoot"></footer>
+<div class="aurora" aria-hidden="true"></div>
+
+<header class="topnav">
+  <div class="container nav-inner">
+    <a class="brand" href="#top">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+        </svg>
+      </span>
+      <span id="portalBrand">统一入口</span>
+    </a>
+    <nav class="nav-links" id="navLinks" aria-label="模块导航"></nav>
   </div>
+</header>
+
+<main id="content">
+  <section class="hero" id="top">
+    <div class="container hero-inner">
+      <p class="eyebrow" id="portalEyebrow"></p>
+      <h1 class="hero-title" id="portalTitle"></h1>
+      <p class="hero-lead" id="portalSubtitle"></p>
+    </div>
+  </section>
+
+  <section class="section" id="features">
+    <div class="container">
+      <div class="section-head" id="sectionHead"><h2 id="portalSectionTitle"></h2></div>
+      <div class="entry-grid" id="cardGrid" aria-label="功能入口"></div>
+    </div>
+  </section>
 </main>
+
+<footer class="page-foot">
+  <div class="container foot-inner">
+    <span id="footCopy"></span>
+    <span class="meta" id="footMeta"></span>
+  </div>
+  <div class="container portal-foot" id="portalFoot"></div>
+</footer>
 
 <script>
 (function () {
@@ -252,9 +533,13 @@ body {
      以后加功能、改名、换端口，只动这个对象，不用碰上面的 HTML/CSS。
      ========================================================================== */
   var PORTAL_CONFIG = {
-    // ---- 页面标题区 ----
-    title: '统一入口',                                // 大标题
-    subtitle: '连接数据、知识与文档处理',               // 副标题（不想要就写空字符串）
+    // ---- 品牌 / 标题区 ----
+    brand: '知识与文档',                              // 顶栏品牌名 + 页脚版权
+    eyebrow: '统一入口',                              // 大标题上方的小标签（留空则不显示）
+    title: '统一入口',                                // 浏览器标签页标题的主词
+    headline: '文档与知识，一处触达',                   // Hero 大标题
+    subtitle: '从外部文档导入到智能问答，所有知识操作在同一入口完成。',  // Hero 副标题
+    sectionTitle: '核心能力',                          // 卡片区标题（留空则整块隐藏）
 
     // ---- 彻底动态：留空则不请求；填上后端接口地址就用接口返回的 JSON 覆盖本地配置 ----
     // 例如 configUrl: '/portal/config'
@@ -265,25 +550,27 @@ body {
       {
         id: 'import',                                            // 唯一标识，用于调试/埋点
         name: '文档导入',                                          // 卡片标题
-        desc: '上传 PDF / Markdown，解析入库构建知识库',             // 卡片描述
+        desc: '支持通过链接导入外部文档，自动解析内容并纳入知识体系。', // 卡片描述
+        cta: '开始导入',                                           // 卡片底部行动文案
         // href：绝对地址，双击打开本文件时也能正常跳转
         href: 'http://127.0.0.2:8005/import.html',
         // path：同源相对路径。仅当"本页所在端口"等于下面的 port 时才用它（见 resolveHref）
         path: '/import.html',
         port: '8005',                                             // 该功能所在服务的端口
-        accent: '#2E5591',                                        // 卡片主题色（徽章底色 / hover 边框 / 箭头）
+        accent: '#2563EB',                                        // 卡片主题色（留空则用全局 --accent）
         // 图标：内联 SVG 的路径数据，零图片资源
-        icon: '<path d="M12 16V4"/><path d="m8 8 4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>'
+        icon: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/>'
       },
       {
         id: 'query',
         name: '知识问答',
-        desc: '基于已入库文档作答，回答带检索进度与原文配图',
+        desc: '基于已导入的知识库进行智能问答，支持上下文追问与引用溯源。',
+        cta: '开始提问',
         href: 'http://127.0.0.1:8003/chat.html',
         path: '/chat.html',
         port: '8003',
-        accent: '#1F8A70',
-        icon: '<path d="M21 12a8 8 0 0 1-11.4 7.2L4 21l1.8-5.1A8 8 0 1 1 21 12z"/><path d="M9 11h6M9 14h4"/>'
+        accent: '#2563EB',
+        icon: '<circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>'
       }
     ],
 
@@ -305,9 +592,9 @@ body {
 
   /* ---------------------------------------------------------------- 小工具 */
 
-  // #RRGGBB → rgba(r,g,b,a)，用于从主题色派生浅色边框
+  // #RRGGBB → rgba(r,g,b,a)，用于从主题色派生浅色底 / 边框
   function hexToRgba(hex, alpha) {
-    var h = String(hex || '#2E5591').replace('#', '');
+    var h = String(hex || '#2563EB').replace('#', '');
     if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];   // 支持 #abc 简写
     var n = parseInt(h, 16);                                            // 转成整数
     return 'rgba(' + ((n >> 16) & 255) + ',' + ((n >> 8) & 255) + ',' + (n & 255) + ',' + alpha + ')';
@@ -336,8 +623,15 @@ body {
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
   }
 
+  // 卡片 accent 色 → 内联 CSS 变量（每张卡各自一套，互不干扰）
+  function accentVars(accent) {
+    return '--accent:' + esc(accent) + ';' +
+           '--accent-soft:' + hexToRgba(accent, .12) + ';' +
+           '--accent-line:' + hexToRgba(accent, .32) + ';';
+  }
+
   // 「配置指纹」：打印本页来源 + 每张卡片最终会跳到的地址。
-  // 这三个数字全部取"当前这份 DOM 渲染时"的真实值。
+  // 这三个值全部取"当前这份 DOM 渲染时"的真实值。
   // 若某个端口号和你预期的不一样（比如停在已经废弃的老端口），
   // 说明浏览器给你的是缓存的旧渲染快照 —— Ctrl+F5 强制刷新即可。
   function stampHtml(cfg) {
@@ -350,7 +644,7 @@ body {
     return '' +
       '<div class="portal-stamp">' +
       '页面来源 <code>' + esc(from) + '</code>' +
-      '&nbsp;&nbsp;|&nbsp;&nbsp;配置指纹 <code>' + esc(PORTAL_CONFIG.stamp || 'n/a') + '</code>' +
+      '&nbsp;&nbsp;|&nbsp;&nbsp;配置指纹 <code>' + esc(cfg.stamp || 'n/a') + '</code>' +
       '<br>' + targets +
       '</div>';
   }
@@ -359,38 +653,73 @@ body {
 
   // 单张卡片的 HTML 模板
   function cardHtml(m, index) {
-    var accent = m.accent || '#2E5591';
+    var accent = m.accent || '#2563EB';
     return '' +
-      '<a class="card" href="' + esc(resolveHref(m)) + '"' +
+      '<a class="entry-card" href="' + esc(resolveHref(m)) + '"' +
       '   target="' + esc(PORTAL_CONFIG.target || '_self') + '"' +
-      '   style="--accent:' + esc(accent) + ';--accent-soft:' + hexToRgba(accent, .28) + ';animation-delay:' + (index * 70) + 'ms"' +
+      '   style="' + accentVars(accent) + 'animation-delay:' + (index * 70) + 'ms"' +
       '   data-module="' + esc(m.id || '') + '">' +
-      '  <span class="card-badge" aria-hidden="true">' +
-      '    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"' +
+      '  <span class="entry-icon" aria-hidden="true">' +
+      '    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"' +
       '         stroke-linecap="round" stroke-linejoin="round">' + (m.icon || '') + '</svg>' +
       '  </span>' +
-      '  <span class="card-name">' + esc(m.name) + '</span>' +
-      '  <span class="card-desc">' + esc(m.desc) + '</span>' +
-      '  <svg class="card-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"' +
-      '       stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
-      '    <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>' +
-      '  </svg>' +
+      '  <span class="entry-name">' + esc(m.name) + '</span>' +
+      '  <span class="entry-desc">' + esc(m.desc) + '</span>' +
+      '  <span class="entry-foot">' +
+      '    <span class="entry-cta">' + esc(m.cta || '进入') + '</span>' +
+      '    <span class="entry-arrow" aria-hidden="true">' +
+      '      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"' +
+      '           stroke-linecap="round" stroke-linejoin="round">' +
+      '        <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>' +
+      '      </svg>' +
+      '    </span>' +
+      '  </span>' +
       '</a>';
+  }
+
+  // 顶栏导航：由 modules 生成，加模块会自动多一个链接
+  function navHtml(cfg) {
+    return (cfg.modules || []).map(function (m) {
+      return '<a href="' + esc(resolveHref(m)) + '" target="' + esc(cfg.target || '_self') + '">' +
+             esc(m.name) + '</a>';
+    }).join('');
   }
 
   // 把整份配置画到页面上（可重复调用，会被"配置接口"再次触发以刷新内容）
   function render(cfg) {
-    document.title = cfg.title || '统一入口';
+    // 浏览器标签页标题：例「统一入口 · 知识与文档」
+    document.title = (cfg.title || '统一入口') + (cfg.brand ? ' · ' + cfg.brand : '');
 
-    document.getElementById('portalTitle').textContent = cfg.title || '';
+    // 顶栏品牌
+    document.getElementById('portalBrand').textContent = cfg.brand || cfg.title || '';
+
+    // 大标题上方的小标签（没配就整块隐藏，不留空行）
+    var eb = document.getElementById('portalEyebrow');
+    eb.textContent = cfg.eyebrow || '';
+    eb.style.display = cfg.eyebrow ? '' : 'none';
+
+    // Hero 大标题 / 副标题
+    document.getElementById('portalTitle').textContent = cfg.headline || '';
     var sub = document.getElementById('portalSubtitle');
     sub.textContent = cfg.subtitle || '';
-    sub.style.display = cfg.subtitle ? '' : 'none';            // 没副标题就别留空行
+    sub.style.display = cfg.subtitle ? '' : 'none';
 
-    var grid = document.getElementById('cardGrid');
-    grid.innerHTML = (cfg.modules || []).map(cardHtml).join('');
+    // 卡片区标题
+    var head = document.getElementById('sectionHead');
+    document.getElementById('portalSectionTitle').textContent = cfg.sectionTitle || '';
+    head.style.display = cfg.sectionTitle ? '' : 'none';
 
-    // 底部：可选按钮（配了才渲染）+ 配置指纹（永远渲染）
+    // 卡片网格 + 顶栏导航
+    document.getElementById('cardGrid').innerHTML = (cfg.modules || []).map(cardHtml).join('');
+    document.getElementById('navLinks').innerHTML = navHtml(cfg);
+
+    // 页脚：版权 + 模块清单（全部由配置派生，不写死）
+    document.getElementById('footCopy').textContent =
+      '© ' + (cfg.brand || cfg.title || '') + ' · ' + new Date().getFullYear();
+    document.getElementById('footMeta').textContent =
+      [cfg.title].concat((cfg.modules || []).map(function (m) { return m.name; })).join(' · ');
+
+    // 页脚诊断区：可选按钮（配了才渲染）+ 配置指纹（永远渲染）
     var foot = document.getElementById('portalFoot');
     var footParts = [];
 
@@ -406,9 +735,6 @@ body {
 
     footParts.push(stampHtml(cfg));                  // 诊断指纹，始终显示
     foot.innerHTML = footParts.join('');
-    foot.style.display = '';
-    foot.style.flexDirection = 'column';             // 按钮在上、指纹在下
-    foot.style.alignItems = 'center';
   }
 
   /* ---------------------------------------------------------------- 启动 */
