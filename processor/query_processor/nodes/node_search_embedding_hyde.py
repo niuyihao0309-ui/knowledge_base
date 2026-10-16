@@ -105,7 +105,8 @@ class NodeSearchEmbeddingHyde(NodeBase):
             combined_text = rewritten_query + " " + hyde_doc
 
             # 2. 生成向量（Dense + Sparse）
-            embeddings = generate_embeddings([combined_text])
+            # text_type="query"：HyDE 拼接出来的也是"查询侧"文本，按 query 编码
+            embeddings = generate_embeddings([combined_text], text_type="query")
             dense_vec = embeddings.get("dense")[0]
             sparse_vec = embeddings.get("sparse")[0]
 

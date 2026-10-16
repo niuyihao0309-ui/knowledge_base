@@ -194,11 +194,14 @@ class NodeDocumentSplit(BaseNode):
         final_sections = self._merge_short_sections(refined_split)
 
         # 阶段3：父标题兜底
-        # for section in final_sections:
-        #     #特殊情况:处理
-        #     pass
-        #
-        # return final_sections
+        # 【修复】Milvus 的 kb_chunks.parent_title 是必填字段，而现网集合没给它设 default_value，
+        # 缺这个键 insert 会直接报 DataNotMatchException。
+        # 只有「超长章节二次切分」(_split_long_section) 会写 parent_title，
+        # 没被切分的章节压根没这个键 —— 这里统一补空串（与库中既有数据一致）。
+        for section in final_sections:
+            if not section.get("parent_title"):
+                section["parent_title"] = ""
+
         return final_sections
 
 

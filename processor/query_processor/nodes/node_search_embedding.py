@@ -41,7 +41,8 @@ class NodeSearchEmbedding(NodeBase):
             item_names = state.get("item_names")
 
             # 2、生成向量 (Dense + Sparse)
-            embeddings = generate_embeddings([query])
+            # text_type="query"：非对称检索，查询词要让模型按"检索意图"编码，比按文档编码更准
+            embeddings = generate_embeddings([query], text_type="query")
             dense_vec = embeddings.get("dense")[0]
             sparse_vec = embeddings.get("sparse")[0]
 

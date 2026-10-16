@@ -204,9 +204,10 @@ class NodeItemNameConfirm(NodeBase):
         # 4、从环境变量中获取Milvus中存储商品名称向量的集合名（表名）
         collection_name = milvus_config.item_name_collection  # kb_item_names
 
-        # 5、对所有商品名称批量生成BGEM3向量（稠密+稀疏），相比逐个生成提升处理效率
+        # 5、对所有商品名称批量生成向量（稠密+稀疏），用于去 kb_item_names 集合里找最相似的已有商品名
         # embeddings格式：{"dense": [向量1, 向量2,...], "sparse": [向量1, 向量2,...]}
-        embeddings = generate_embeddings(item_names)
+        # text_type="query"：这里是"拿用户输入去比对库里的标准名"，属于查询侧
+        embeddings = generate_embeddings(item_names, text_type="query")
 
         # 6、遍历每个商品名称，逐个执行向量搜索（保证结果与原始商品名一一对应）
         for i in range(len(item_names)):

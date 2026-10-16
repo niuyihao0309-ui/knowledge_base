@@ -39,6 +39,13 @@ class NodeMDImg(BaseNode):
         """
         # 步骤1：初始化数据，获取MD核心信息
         md_content,md_path_obj,images_dir = self._step_1_get_content(state)
+
+        # 【修复】先把磁盘读到的内容写回 state。
+        # 下面两处「跳过图片处理」的提前 return 会原样返回 state，
+        # 而 md_content 只在步骤6才写回 —— 结果下游 node_document_split
+        # 拿到空的 md_content，直接抛「文件内容不能为空」，导入 0 秒就失败。
+        state["md_content"] = md_content
+
         if not images_dir.exists():
             self.logger.info("无图片文件夹，跳过图片处理")
             return state

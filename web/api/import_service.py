@@ -35,7 +35,27 @@ app.add_middleware(
 )
 
 # 3. 静态页面路由：返回文件导入前端页面
-# 访问地址：http://localhost:8001/import.html
+# 访问地址：http://127.0.0.2:8005/import.html
+def _html_response(html_path: Path) -> FileResponse:
+    """
+    返回 HTML 页面，并强制浏览器「不缓存」。
+
+    为什么必须禁缓存：
+        页面里写死了绝对地址（import.html 的 API_BASE、index.html 的卡片 href）。
+        一旦端口变了（如导入服务 8001 → 8005），浏览器若还拿旧版页面，
+        点卡片就会跳到已失效的 8001，报 ERR_CONNECTION_REFUSED ——
+        用户只能手动敲新地址。加上这些响应头后，每次打开都是磁盘上的最新页面。
+    """
+    return FileResponse(
+        html_path,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
 @app.get("/import.html")  # 对外访问地址
 async def get_import_page():
     # 拼接HTML文件绝对路径
@@ -44,9 +64,9 @@ async def get_import_page():
     # 如果不存在，抛出404异常
     if not html_path.exists():
         raise HTTPException(status_code=404, detail=f"没有查询到页面，地址为：{html_path}")
-    return FileResponse(html_path)
+    return _html_response(html_path)
 
-# 3.1 统一入口门户页：访问 http://127.0.0.2:8001/ 即为「文档导入 / 知识问答」两个入口
+# 3.1 统一入口门户页：访问 http://127.0.0.2:8005/ 即为「文档导入 / 知识问答」两个入口
 @app.get("/")
 async def portal():
     # 拼接HTML文件绝对路径
@@ -55,7 +75,7 @@ async def portal():
     # 如果不存在，抛出404异常
     if not html_path.exists():
         raise HTTPException(status_code=404, detail=f"没有查询到页面，地址为：{html_path}")
-    return FileResponse(html_path)
+    return _html_response(html_path)
 
 # 4. 后台任务：LangGraph全流程执行
 # 独立于主请求线程，由BackgroundTasks触发，避免阻塞接口响应
@@ -99,7 +119,7 @@ def run_graph_task(task_id: str, file_dir: str, import_file_path: str):
 
 # 5. 核心接口：文件上传接口
 # 支持多文件上传，核心流程：接收文件 → 本地保存 → MinIO上传 → 启动后台任务
-# 访问地址：http://localhost:8000/upload （POST请求，form-data格式传参）
+# 访问地址：http://127.0.0.2:8005/upload （POST请求，form-data格式传参）
 @app.post("/upload", summary="文件上传接口", description="支持多文件批量上传，自动触发知识库导入全流程")
 async def upload_files(background_tasks: BackgroundTasks, files: List[UploadFile] = File(...)):
     """
@@ -187,7 +207,7 @@ async def upload_files(background_tasks: BackgroundTasks, files: List[UploadFile
 
 # 6. 核心接口：任务状态查询接口
 # 前端轮询此接口获取单个任务的处理进度和状态
-# 访问地址：http://localhost:8000/status/{task_id} （GET请求）
+# 访问地址：http://127.0.0.2:8005/status/{task_id} （GET请求）
 @app.get("/status/{task_id}", summary="任务状态查询", description="根据TaskID查询单个文件的处理进度和全局状态")
 async def get_task_progress(task_id: str):
     """
@@ -220,11 +240,11 @@ async def get_task_progress(task_id: str):
 if __name__ == "__main__":
     """服务启动入口：本地开发环境直接运行"""
     logger.info("BOSS智库服务启动中...")
-    # 启动uvicorn服务，绑定本地IP和8000端口，关闭自动重载（生产环境建议用workers多进程）
+    # 启动uvicorn服务，绑定本地IP和8005端口，关闭自动重载（生产环境建议用workers多进程）
     uvicorn.run(
         app=app,
         host="127.0.0.2",  # 仅本地访问，生产环境改为0.0.0.0（允许所有IP访问）
-        port=8001  # 服务端口
+        port=8005  # 服务端口（2026-10-16 由 8001 改来，避开问数后端 8001）
     )
 
 

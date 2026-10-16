@@ -446,8 +446,8 @@ input, select { font-family: inherit; }
   var ACCEPTED = { pdf: true, md: true, markdown: true };
 
   // 后端导入服务地址（以 web/api/import_service.py 的 uvicorn 配置为准：
-  // host=127.0.0.2，port=8001）
-  var API_BASE = 'http://127.0.0.2:8001';
+  // host=127.0.0.2，port=8005）—— 2026-10-16 由 8001 改来，避开问数后端 8001
+  var API_BASE = 'http://127.0.0.2:8005';
   // 任务状态轮询间隔（毫秒）
   var POLL_INTERVAL = 1500;
 

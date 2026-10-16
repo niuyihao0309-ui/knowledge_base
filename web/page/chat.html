@@ -2,7 +2,7 @@
 <!--
   知识库智能问答 — OD 设计稿（已接入真实后端）
   ------------------------------------------------------------------
-  后端接口（web/api/query_service.py，默认 http://127.0.0.1:8002）：
+  后端接口（web/api/query_service.py，默认 http://127.0.0.1:8003）：
     POST /query            {query, session_id, is_stream}
                            非流式 -> {message, session_id, answer, done_list}
                            流式   -> {message, session_id}，结果走 SSE
@@ -357,10 +357,10 @@ textarea, select { font-family: inherit; }
   var apiText    = document.getElementById('apiText');
   var apiDot     = document.querySelector('.api-status .dot');
 
-  // 同源（由后端 /chat.html 托管）优先；file:// 直接打开时回退到 8002
+  // 同源（由后端 /chat.html 托管）优先；file:// 直接打开时回退到 8003
   var API_BASE = /^https?:$/.test(location.protocol)
     ? (location.protocol + '//' + location.host)
-    : 'http://127.0.0.1:8002';
+    : 'http://127.0.0.1:8003';
 
   // 图片路径前缀：后端返回相对路径（如 images/xxx.jpg）时用它拼成可访问地址。
   // 同源部署保持 ''；若图片存在 MinIO，可改为 'http://192.168.10.100:9000/knowledge-base/' 之类。
@@ -1091,8 +1091,8 @@ textarea, select { font-family: inherit; }
   </div>
 
   <script>
-    // 默认同源；如你把页面单独打开（file://），可改成 http://127.0.0.1:8001
-    const API_BASE = `${location.protocol}//${location.host}`.includes('http') ? `${location.protocol}//${location.host}` : 'http://127.0.0.1:8002';
+    // 默认同源；如你把页面单独打开（file://），可改成 http://127.0.0.1:8003（问答服务端口）
+    const API_BASE = `${location.protocol}//${location.host}`.includes('http') ? `${location.protocol}//${location.host}` : 'http://127.0.0.1:8003';
     const chatEl = document.getElementById('chat');
     const inputEl = document.getElementById('input');
     const sendBtn = document.getElementById('send');

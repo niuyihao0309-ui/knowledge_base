@@ -7,7 +7,7 @@
         用户打开本页 → 看到模块卡片 → 点哪张就进哪个功能。
 
   路由归属（两个服务都挂了 GET / 返回本页，所以从哪个端口进来都能当门户用）：
-    · http://127.0.0.2:8001/  → 本页（文档导入所在服务）
+    · http://127.0.0.2:8005/  → 本页（文档导入所在服务）
     · http://127.0.0.1:8003/  → 本页（知识问答所在服务）
 
   【设计原则：尽量减少静态元素】
@@ -20,8 +20,8 @@
   【怎么用】
     · 直接双击打开：能看到界面，点卡片会跳到对应的 http 地址（绝对地址已配好）。
     · 挂到后端（推荐）：任一 FastAPI 里已有 `GET /` 返回本页（见 web/api/*_service.py 的 portal()），
-      访问 http://127.0.0.2:8001/ 或 http://127.0.0.1:8003/ 就是门户。
-    · 注意 resolveHref 的端口判定：门户挂在 8003 时，"文档导入"卡片必须走 8001 的绝对地址，
+      访问 http://127.0.0.2:8005/ 或 http://127.0.0.1:8003/ 就是门户。
+    · 注意 resolveHref 的端口判定：门户挂在 8003 时，"文档导入"卡片必须走 8005 的绝对地址，
       否则会跳成 127.0.0.1:8003/import.html → 404。
   ============================================================================
 -->
@@ -194,6 +194,33 @@ body {
 .foot-btn:hover { border-color: var(--ink-3); color: var(--ink); }
 .foot-btn svg { width: 14px; height: 14px; }
 
+/* --------------------------- 配置指纹（诊断用）----------------------------- */
+/* 页脚永远显示的一行小字：本页从哪来 + 每张卡片实际会跳到哪。
+   为什么需要它：
+     浏览器缓存 / 「恢复上次标签页」可能把旧渲染快照还原出来，
+     那时卡片 href 还停在老端口，用户点了就跳死链，却完全看不出页面是旧的。
+     有了这行指纹，只要显示的端口和你期望的不一致（比如停在已经废弃的老端口），
+     就能立刻判定"手上这份是旧页面"，Ctrl+F5 刷新即可拿到最新配置。
+   纯诊断信息，不影响任何功能，觉得啰嗦可以删掉 render() 里的 stampHtml 调用。 */
+.portal-stamp {
+  margin-top: 16px;
+  font-size: 11.5px;
+  line-height: 1.9;
+  color: var(--ink-3);
+  text-align: center;
+  word-break: break-word;
+}
+.portal-stamp code {
+  font-family: Consolas, "SF Mono", ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--ink-2);
+  background: rgba(16, 24, 40, .05);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
 /* 无障碍：用户系统里开了"减少动态效果"就关掉动画 */
 @media (prefers-reduced-motion: reduce) {
   .card { animation: none; }
@@ -240,10 +267,10 @@ body {
         name: '文档导入',                                          // 卡片标题
         desc: '上传 PDF / Markdown，解析入库构建知识库',             // 卡片描述
         // href：绝对地址，双击打开本文件时也能正常跳转
-        href: 'http://127.0.0.2:8001/import.html',
+        href: 'http://127.0.0.2:8005/import.html',
         // path：同源相对路径。仅当"本页所在端口"等于下面的 port 时才用它（见 resolveHref）
         path: '/import.html',
-        port: '8001',                                             // 该功能所在服务的端口
+        port: '8005',                                             // 该功能所在服务的端口
         accent: '#2E5591',                                        // 卡片主题色（徽章底色 / hover 边框 / 箭头）
         // 图标：内联 SVG 的路径数据，零图片资源
         icon: '<path d="M12 16V4"/><path d="m8 8 4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/>'
@@ -263,6 +290,10 @@ body {
     // ---- 底部可选按钮：不想要就写 null ----
     // footer: { text: '更多智能体', href: '#' }
     footer: null,
+
+    // ---- 配置指纹：会原样印在页脚，用来一眼识别"手上这份页面是不是最新配置" ----
+    // 改端口 / 改卡片时顺手把这里也改一下（不必精确，能区分新旧就行）。
+    stamp: '2026-10-16 · 导入 8005 / 问答 8003',
 
     // ---- 跳转方式：'_self' 本页跳转（默认）；'_blank' 新标签页打开 ----
     target: '_self'
@@ -290,7 +321,7 @@ body {
   // 决定一个模块最终跳到哪：
   // · 页面走 file:// 直开 → 只能用绝对地址 href
   // · 页面走 http，且"当前端口 == 该模块服务的端口" → 用同源相对路径 path（不用写死 IP）
-  // · 否则（门户挂在 8003，但导入服务在 8001）→ 必须用绝对地址 href，否则会 404
+  // · 否则（门户挂在 8003，但导入服务在 8005）→ 必须用绝对地址 href，否则会 404
   function resolveHref(m) {
     if (m.path && isServedOverHttp() && String(location.port) === String(m.port)) {
       return m.path;
@@ -303,6 +334,25 @@ body {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  // 「配置指纹」：打印本页来源 + 每张卡片最终会跳到的地址。
+  // 这三个数字全部取"当前这份 DOM 渲染时"的真实值。
+  // 若某个端口号和你预期的不一样（比如停在已经废弃的老端口），
+  // 说明浏览器给你的是缓存的旧渲染快照 —— Ctrl+F5 强制刷新即可。
+  function stampHtml(cfg) {
+    var from = isServedOverHttp()
+      ? (location.host + location.pathname)                 // 例：127.0.0.1:8003/
+      : '本地文件（file://）';
+    var targets = (cfg.modules || []).map(function (m) {
+      return esc(m.name) + ' → <code>' + esc(resolveHref(m)) + '</code>';
+    }).join('&nbsp;&nbsp;·&nbsp;&nbsp;');
+    return '' +
+      '<div class="portal-stamp">' +
+      '页面来源 <code>' + esc(from) + '</code>' +
+      '&nbsp;&nbsp;|&nbsp;&nbsp;配置指纹 <code>' + esc(PORTAL_CONFIG.stamp || 'n/a') + '</code>' +
+      '<br>' + targets +
+      '</div>';
   }
 
   /* ---------------------------------------------------------------- 渲染 */
@@ -340,20 +390,25 @@ body {
     var grid = document.getElementById('cardGrid');
     grid.innerHTML = (cfg.modules || []).map(cardHtml).join('');
 
-    // 底部按钮：配了才渲染
+    // 底部：可选按钮（配了才渲染）+ 配置指纹（永远渲染）
     var foot = document.getElementById('portalFoot');
+    var footParts = [];
+
     if (cfg.footer && cfg.footer.text) {
-      foot.innerHTML =
+      footParts.push(
         '<a class="foot-btn" href="' + esc(cfg.footer.href || '#') + '">' +
         esc(cfg.footer.text) +
         '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"' +
         ' stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg>' +
-        '</a>';
-      foot.style.display = '';
-    } else {
-      foot.innerHTML = '';
-      foot.style.display = 'none';
+        '</a>'
+      );
     }
+
+    footParts.push(stampHtml(cfg));                  // 诊断指纹，始终显示
+    foot.innerHTML = footParts.join('');
+    foot.style.display = '';
+    foot.style.flexDirection = 'column';             // 按钮在上、指纹在下
+    foot.style.alignItems = 'center';
   }
 
   /* ---------------------------------------------------------------- 启动 */

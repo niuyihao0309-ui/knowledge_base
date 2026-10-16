@@ -33,6 +33,26 @@ app.add_middleware(
 )
 
 # 3. 静态页面路由
+def _html_response(html_path: Path) -> FileResponse:
+    """
+    返回 HTML 页面，并强制浏览器「不缓存」。
+
+    为什么必须禁缓存：
+        页面里写死了绝对地址（chat.html 的 API_BASE、index.html 的卡片 href）。
+        一旦端口变了（如导入服务 8001 → 8005），浏览器若还拿旧版页面，
+        点卡片就会跳到已失效的 8001，报 ERR_CONNECTION_REFUSED ——
+        用户只能手动敲新地址。加上这些响应头后，每次打开都是磁盘上的最新页面。
+    """
+    return FileResponse(
+        html_path,
+        headers={
+            "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+            "Pragma": "no-cache",
+            "Expires": "0",
+        },
+    )
+
+
 @app.get("/chat.html")  # 对外访问地址
 async def chat():
     current_dir_parent_path = Path(__file__).absolute().parent.parent
@@ -40,7 +60,7 @@ async def chat():
     # 如果不存在，抛出404异常
     if not html_path.exists():
         raise HTTPException(status_code=404, detail=f"没有查询到页面，地址为：{html_path}")
-    return FileResponse(html_path)
+    return _html_response(html_path)
 
 
 # 3.1 统一入口门户页：访问 http://127.0.0.1:8003/ 即为「文档导入 / 知识问答」两个入口
@@ -51,7 +71,7 @@ async def portal():
     # 如果不存在，抛出404异常
     if not html_path.exists():
         raise HTTPException(status_code=404, detail=f"没有查询到页面，地址为：{html_path}")
-    return FileResponse(html_path)
+    return _html_response(html_path)
 
 
 # 定义接口接收的数据结构

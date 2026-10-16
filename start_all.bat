@@ -3,16 +3,40 @@ chcp 65001 >nul
 cd /d "%~dp0"
 title 知识库 · 一键启动
 
+REM ==========================================================================
+REM  知识库 · 一键启动
+REM    · 第 1 步：Docker 数据服务（Milvus + etcd + MinIO + MongoDB）
+REM    · 第 2 步：文档导入 API（127.0.0.2:8005）+ 知识问答 API（127.0.0.1:8003）
+REM    · 第 3 步：等服务就绪
+REM    · 第 4 步：自动拉起浏览器，打开「统一入口」门户页
+REM              （导入页不单独开，从门户里点「文档导入」卡片进）
+REM  维护提示：改端口必须同步改这 4 处 ——
+REM    web/api/import_service.py(uvicorn.run)、web/page/import.html(API_BASE)、
+REM    web/page/index.html(模块 href + port)、本脚本下方的 IMP_PORT / QRY_PORT。
+REM  另：两个后端返回 HTML 时已带 Cache-Control: no-store；此外第 4 步打开门户时
+REM      还会在地址后挂一个随机参数(?t=xxxx)，双保险防止浏览器拿旧页面来坑人。
+REM  ⚠️【写 echo 的铁律】echo 的文本里禁止出现 > < & | ( ) ^ 这些 cmd 元字符。
+REM     尤其别用 "^>" 转义箭头 —— 一旦哪层解析出了偏差，cmd 会把它当重定向符，
+REM     在项目根凭空生成名为「文档导入」「知识问答」的垃圾文件（2026-10-16 真踩过）。
+REM     要表达"箭头/括号"请直接用全角符号：→ ← （） 【】 ★，绝对安全。
+REM ==========================================================================
+
+set "ROOT=%~dp0"
+set "IMP_PORT=8005"
+set "QRY_PORT=8003"
+set "IMP_URL=http://127.0.0.2:8005"
+set "QRY_URL=http://127.0.0.1:8003"
+
 echo.
 echo   ==========================================================
 echo     知识库 · 一键启动
 echo     Docker 数据服务 + 后端 API + 前端页面 + 自动开浏览器
-echo     项目目录：%~dp0
+echo     项目目录：%ROOT%
 echo   ==========================================================
 echo.
 
 REM ================================================================
-REM  第 1 步：Docker 数据服务（Milvus / etcd / MinIO / Attu / MongoDB）
+REM  第 1 步：Docker 数据服务
 REM ================================================================
 echo   [1/4] 检查 Docker 引擎...
 set "DD_EXE=%ProgramFiles%\Docker\Docker\Docker Desktop.exe"
@@ -37,14 +61,16 @@ goto DOCKER_SKIP
 
 :DOCKER_READY
 echo         引擎正常，正在启动数据容器...
-pushd "%~dp0docker"
+pushd "%ROOT%docker"
 docker compose version >nul 2>nul
 if errorlevel 1 goto DC_OLD
-docker compose up -d
+REM --remove-orphans：把「已从 compose 里移除、容器却还在跑」的服务一并清掉，
+REM 否则像已注释掉的 attu 会继续占着 8000 端口。
+docker compose up -d --remove-orphans
 goto DC_DONE
 :DC_OLD
-echo         (未找到 docker compose 子命令，退回 docker-compose)
-docker-compose up -d
+echo         （未找到 docker compose 子命令，退回 docker-compose）
+docker-compose up -d --remove-orphans
 :DC_DONE
 set "DCERR=%errorlevel%"
 popd
@@ -64,6 +90,7 @@ goto HCLOOP
 
 :DOCKER_ALL_OK
 echo         Milvus 与 MongoDB 均已就绪。
+docker ps --format "         · {{.Names}}  {{.Status}}" --filter "name=milvus-" --filter "name=mongo"
 goto PY_ENV
 
 :HC_TIMEOUT
@@ -85,8 +112,8 @@ REM  第 2 步：挑选 Python 解释器 + 启动两个后端 API
 REM ================================================================
 :PY_ENV
 echo.
-echo   [2/4] 启动后端服务（前端页面由问答服务一并托管）...
-if exist ".venv\Scripts\python.exe" goto USE_VENV
+echo   [2/4] 启动后端服务（前端页面由后端一并托管）...
+if exist "%ROOT%.venv\Scripts\python.exe" goto USE_VENV
 where uv >nul 2>nul
 if errorlevel 1 goto NO_ENV
 set "PY=uv run python"
@@ -107,31 +134,39 @@ exit /b 1
 
 :CHECK_PORT
 echo         使用解释器：%PYSRC%
+REM 端口占用检测：上一次启动留下的黑窗口还开着时，这里会判定「已在运行」并跳过启动。
+REM ⚠️ 陷阱：跳过之后再手动关掉那些旧窗口，服务就没了，而本脚本已经跑完 —— 表现为
+REM    「点卡片打不开 / 连接被拒绝」。所以下面的提示写得很醒目，并且最后会汇总谁是新起的、谁是复用的。
+set "REUSED="
 set "SKIP1=0"
-netstat -ano | findstr "LISTENING" | findstr ":8001 " >nul 2>nul
+netstat -ano | findstr "LISTENING" | findstr ":%IMP_PORT% " >nul 2>nul
 if not errorlevel 1 set "SKIP1=1"
 set "SKIP2=0"
-netstat -ano | findstr "LISTENING" | findstr ":8003 " >nul 2>nul
+netstat -ano | findstr "LISTENING" | findstr ":%QRY_PORT% " >nul 2>nul
 if not errorlevel 1 set "SKIP2=1"
 
-echo         [1/2] 文档导入  →  http://127.0.0.2:8001
+echo         [1/2] 文档导入  →  %IMP_URL%
 if "%SKIP1%"=="1" goto KEEP1
-start "知识库 · 文档导入 8001" cmd /k %PY% -m web.api.import_service
+start "知识库 · 文档导入 %IMP_PORT%" cmd /k %PY% -m web.api.import_service
 goto STEP2
 :KEEP1
-echo               已跳过：8001 端口被占用，服务可能已在运行
+echo               [跳过] %IMP_PORT% 端口已被占用，不重复启动「文档导入」
+echo                      ★★★ 它由上一次启动的那个黑窗口在跑，请别关掉它 ★★★
+set "REUSED=%REUSED% 文档导入"
 :STEP2
 
-echo         [2/2] 知识问答  →  http://127.0.0.1:8003
+echo         [2/2] 知识问答  →  %QRY_URL%
 if "%SKIP2%"=="1" goto KEEP2
 echo               提示：要加载重依赖，约 25 秒才就绪，属正常
-start "知识库 · 知识问答 8003" cmd /k %PY% -m web.api.query_service
+start "知识库 · 知识问答 %QRY_PORT%" cmd /k %PY% -m web.api.query_service
 goto WAIT
 :KEEP2
-echo               已跳过：8003 端口被占用，服务可能已在运行
+echo               [跳过] %QRY_PORT% 端口已被占用，不重复启动「知识问答」
+echo                      ★★★ 它由上一次启动的那个黑窗口在跑，请别关掉它 ★★★
+set "REUSED=%REUSED% 知识问答"
 
 REM ================================================================
-REM  第 3 步：等服务就绪 + 自动打开浏览器
+REM  第 3 步：等服务就绪 + 第 4 步 打开浏览器
 REM ================================================================
 :WAIT
 echo.
@@ -142,8 +177,11 @@ if errorlevel 1 goto WAIT_PLAIN
 set /a N=0
 :WAIT_LOOP
 ping -n 3 127.0.0.1 >nul
-curl -s -o nul --max-time 2 http://127.0.0.1:8003/health
+curl -s -o nul --max-time 2 %QRY_URL%/health
+if errorlevel 1 goto WAIT_NEXT
+curl -s -o nul --max-time 2 %IMP_URL%/import.html
 if not errorlevel 1 goto OPEN
+:WAIT_NEXT
 set /a N+=1
 if %N% lss 30 goto WAIT_LOOP
 goto TIMEOUT
@@ -154,18 +192,33 @@ ping -n 31 127.0.0.1 >nul
 
 :OPEN
 echo   [4/4] 服务已就绪，正在打开浏览器...
-start "" http://127.0.0.1:8003/
+REM 只开「统一入口」这一个页面（地址 127.0.0.1:8003）。
+REM 导入页不用单独开 —— 在统一入口里点「文档导入」卡片即可，
+REM 那张卡片的 href 就是 http://127.0.0.2:8005/import.html（见 web/page/index.html）。
+REM
+REM 【防「旧页面」】URL 末尾挂一个每次都不同的随机参数。
+REM   浏览器（尤其 Chrome）的缓存/「恢复上次标签页」是按 URL 复用的：
+REM   地址一字不差 → 它可能直接还原上次渲染出来的那份 DOM，
+REM   而那份 DOM 里卡片 href 还停在老端口（例如 8001），点下去就跳进死链。
+REM   换成随机地址后浏览器必须重新向服务器取，从根上杜绝这类问题。
+REM   注：FastAPI 的 @app.get("/") 不校验查询参数，多带 ?t=xxx 不影响路由。
+set "CACHEBUST=%RANDOM%%RANDOM%%RANDOM%"
+set "OPEN_URL=%QRY_URL%/?t=%CACHEBUST%"
+start "" "%OPEN_URL%"
 echo.
 echo   ----------------------------------------------------------
-echo   全部启动完成
-echo     门户页面    http://127.0.0.1:8003/
-echo     文档导入    http://127.0.0.2:8001/import.html
-echo     Milvus UI   http://localhost:8000/     (Attu)
-echo     MinIO 控制台 http://localhost:9001/     (minioadmin / minioadmin)
+echo   全部启动完成（浏览器已打开「统一入口」，点卡片进各功能）
+if not "%REUSED%"=="" echo   【复用】本次未重启的服务：%REUSED%  （它们由之前的黑窗口在跑，别关）
+echo   统一入口    %OPEN_URL%   ←← 打开的就是这个
+echo     文档导入    %IMP_URL%/import.html  （统一入口 → 文档导入 卡片）
+echo     知识问答    %QRY_URL%/chat.html    （统一入口 → 知识问答 卡片）
+echo     MinIO 控制台 http://localhost:9001/   （minioadmin / minioadmin）
+echo     Milvus 健康  http://localhost:9091/healthz
 echo.
-echo   关闭本窗口不影响服务。
-echo   要停止服务：关掉上面打开的两个命令行窗口，然后执行
-echo     cd docker  ^&^&  docker compose down
+echo   关闭本窗口不影响服务；但上面那两个服务黑窗口一关，服务就停了。
+echo   要停止服务：关掉上面打开的两个服务命令行窗口，然后依次执行
+echo     cd docker
+echo     docker compose down
 echo   ----------------------------------------------------------
 ping -n 8 127.0.0.1 >nul
 exit /b 0
@@ -173,7 +226,11 @@ exit /b 0
 :TIMEOUT
 echo.
 echo   [警告] 等待超时，服务还没起来。
-echo          请查看上面打开的那两个命令行窗口里的报错信息。
+echo          请查看上面打开的那两个服务命令行窗口里的报错信息。
+if not "%REUSED%"=="" echo.
+if not "%REUSED%"=="" echo          另外：本次「%REUSED%」是按「端口已占用」跳过的（见上方 [跳过] 提示），
+if not "%REUSED%"=="" echo          如果占用端口的旧窗口已经被你关掉，就会出现这种「端口占着但没响应」。
+if not "%REUSED%"=="" echo          处理办法：把占用 %IMP_PORT% / %QRY_PORT% 的旧窗口关干净，再重跑本脚本。
 echo.
 pause
 exit /b 1

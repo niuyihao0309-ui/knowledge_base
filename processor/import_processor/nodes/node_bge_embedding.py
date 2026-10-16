@@ -74,7 +74,9 @@ class NodeBGEEmbedding(BaseNode):
             List[Dict]: 包含向量字段（dense_vector/sparse_vector）的文本切片列表
         """
         # 定义批处理数量
-        bath_size = 3
+        # 2026-10-16：本地模型时代为防显存溢出设 3；改走百炼 API 后没有显存压力，
+        # 提到 10 —— 正好是 text-embedding-v4 的单次上限，请求数砍到原来的 1/3，全量重导快很多
+        bath_size = 10
         # 初始化一个空列表
         output_data = []
 
@@ -83,8 +85,8 @@ class NodeBGEEmbedding(BaseNode):
             # 批量构造文本
             texts = [f"{chunk['item_name']}\n{chunk['content']}" for chunk in batch_chunks]
 
-            # 批量生成向量
-            vectors = generate_embeddings(texts)
+            # 批量生成向量（text_type="document"：入库文本走文档侧编码）
+            vectors = generate_embeddings(texts, text_type="document")
             dense_vectors = vectors.get("dense")
             sparse_vectors = vectors.get("sparse")
 
