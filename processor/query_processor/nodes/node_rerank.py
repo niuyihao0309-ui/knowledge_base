@@ -1,8 +1,6 @@
 # processor/query_processor/nodes/node_rerank.py
 from typing import Dict, Any, List
 
-from certifi import contents
-
 from processor.query_processor.base import NodeBase
 from processor.query_processor.state import QueryGraphState
 from tool.logger import logger
