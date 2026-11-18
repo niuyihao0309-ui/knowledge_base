@@ -5,6 +5,61 @@
 
 ---
 
+## [v0.3.0] - 2026-11-18
+
+向量化再换一次引擎（百炼额度耗尽 → 硅基流动），并修掉查询链路里三个一直存在但没被触发的缺陷。
+
+### 变更 Changed
+
+- **向量化：百炼 `text-embedding-v4` → 硅基流动 `Qwen/Qwen3-Embedding-0.6B`**
+  - `EMBEDDING_PROVIDER` 双开关（`dashscope` / `siliconflow`），对外契约不变：
+    `generate_embeddings(texts, text_type) -> {dense, sparse}`，dense 仍为 1024 维。
+  - 硅基流动只返回 dense，**sparse 改由本地计算**：中文 2-gram 分词 → md5 稳定词 ID →
+    `1 + log(tf)` 词频权重 → L2 归一化，等价于不含 IDF 的 BM25 稀疏表示。
+    不能留空的原因：库里 sparse 全空时，查询侧带 sparse 的 `hybrid_search` 会整体返回 `[]`
+    （dense 那一路也被吞掉），检索直接失效。
+  - 单批条数默认值随 provider 变化（百炼 10 / 硅基流动 32），可用 `EMBEDDING_MAX_BATCH` 覆盖。
+  - `node_bge_embedding` 的批大小 10 → 32，与单批上限对齐，101 条 chunk 的请求数从 11 次降到 4 次。
+- **联网搜索 MCP 改为可开关**：`ENABLE_WEB_SEARCH_MCP=0` 时不创建、不注册该节点，
+  查询流程退化为「切片搜索 + 假设性文档搜索」两路召回，前端进度里也不再出现「网络搜索」。
+
+### 新增 Added
+
+- `tool/rebuild_vectors.py`：换 embedding 模型后的全库向量重建脚本。
+  不重跑 PDF 解析，只把已有 chunk 正文读出来重算 dense/sparse 再写回；
+  删除前先导出 JSON 备份，支持 `--backup-only` 与 `--from-backup`，可重入。
+- `.env.example` 补齐 `ENABLE_WEB_SEARCH_MCP`、`MCP_API_KEY`，MCP 地址由 `.../sse` 改为 `.../mcp`。
+
+### 修复 Fixed
+
+- **rerank 缺键崩溃**：`_step_1_merge_multi_source_docs` 直接读 `state['web_search_docs']`，
+  该键在联网搜索节点未挂载时不存在，必抛 `KeyError`。改用 `.get(...) or []`。
+- **rerank 降级失败**：`except` 分支写的是 `[{**merged_multi_docs, "score": None}]`，
+  对 `list` 做字典解包会抛 `TypeError: 'list' object is not a mapping`，
+  导致「精排失败 → 降级也失败 → 整个问答挂掉」。改为逐条补 `score=None`，保持 RRF 原顺序返回。
+- **断崖截断从未生效**：`_step_3_cliff_cutoff` 的 `range(lower_bound-1, upper_bound, -1)`
+  步长为负而 `stop` 大于 `start`，Python 返回空序列，循环一次都不执行，
+  `cutoff_pos` 恒等于 `upper_bound`（永远取满 10 条）。改为正步长并收上界到 `upper_bound-1`，避免越界。
+- **`import_service` 启动段错误**：`node_document_split` 在模块顶层导入
+  `RecursiveCharacterTextSplitter`，会连带拖进 `sentence_transformers → sklearn → pandas → pyarrow`
+  一整条重依赖链，本机实测启动卡 47s 后 segfault。改为在 `_split_long_section()` 内延迟导入。
+
+### 已知限制
+
+- rerank 依赖百炼 key（`MCP_API_KEY`）。key 失效时自动降级为 RRF 原顺序，
+  问答不中断，但精排效果失效。要恢复需换有效 key，或将 rerank 迁到其他 reranker 服务。
+
+### 升级必读
+
+换 embedding 模型意味着**旧向量全部作废**（新旧向量不在同一空间，混用会明显掉准），
+拉取本版后必须跑一次：
+
+```bash
+PYTHONPATH=. .venv/Scripts/python.exe -m tool.rebuild_vectors
+```
+
+---
+
 ## [v0.2.0] - 2026-10-16
 
 向量化引擎替换、服务端口迁移、启动脚本与门户页重做。**这一版起，整套系统可以「一键起来」。**
@@ -69,12 +124,15 @@
 
 | 版本 | 日期 | 一句话 |
 | --- | --- | --- |
+| [v0.3.0][v0.3.0] | 2026-11-18 | 硅基流动向量化 ＋ 本地 sparse ＋ 查询链路三处修复 |
 | [v0.2.0][v0.2.0] | 2026-10-16 | 百炼向量化 ＋ 端口迁移 ＋ 一键启动 ＋ 门户改版 |
 | [v0.1.0][v0.1.0] | 2026-10-12 | 初始版：Milvus/Mongo ＋ 两条 API ＋ 三张页面 |
 
 逐行差异（GitHub）：
 
+- v0.2.0 → v0.3.0：<https://github.com/niuyihao0309-ui/knowledge_base/compare/v0.2.0...v0.3.0>
 - v0.1.0 → v0.2.0：<https://github.com/niuyihao0309-ui/knowledge_base/compare/v0.1.0...v0.2.0>
 
+[v0.3.0]: https://github.com/niuyihao0309-ui/knowledge_base/releases/tag/v0.3.0
 [v0.2.0]: https://github.com/niuyihao0309-ui/knowledge_base/releases/tag/v0.2.0
 [v0.1.0]: https://github.com/niuyihao0309-ui/knowledge_base/releases/tag/v0.1.0
