@@ -8,11 +8,26 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
+def _env_flag(name: str, default: bool = True) -> bool:
+    """把环境变量里的字符串开关解析成 bool。
+
+    未配置 / 空字符串 -> 用 default；
+    1/true/yes/on/y（不分大小写）-> True；其它值 -> False。
+    """
+    raw = os.getenv(name)
+    if raw is None or raw.strip() == "":
+        return default
+    return raw.strip().lower() in ("1", "true", "yes", "on", "y")
+
+
 # 定义mcp的服务配置
 @dataclass
 class McpConfig:
     mcp_base_url: str
     api_key : str
+    # 网络搜索 MCP 总开关：False 时 LangGraph 里不挂这个节点（前端也不会显示「网络搜索」），
+    # 查询流程退化为「切片搜索 + 假设性文档搜索」两路召回。
+    enabled: bool = True
 
 mcp_config = McpConfig(
     mcp_base_url=os.getenv("MCP_DASHSCOPE_BASE_URL"),
@@ -20,5 +35,7 @@ mcp_config = McpConfig(
     # 原因：本项目 OPENAI_API_BASE 指向硅基流动（https://api.siliconflow.cn/v1），
     # 拿硅基流动的 key 去请求 dashscope 的 MCP，只会得到一个同样是 401、
     # 但原因更难判断的报错，掩盖「MCP_API_KEY 未配置/已失效」这个真实问题。
-    api_key=os.getenv("MCP_API_KEY")
+    api_key=os.getenv("MCP_API_KEY"),
+    # 开关：ENABLE_WEB_SEARCH_MCP=0 即跳过联网搜索（默认开启，保持原有行为）
+    enabled=_env_flag("ENABLE_WEB_SEARCH_MCP", True)
 )

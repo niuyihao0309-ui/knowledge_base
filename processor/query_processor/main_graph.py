@@ -3,6 +3,7 @@ from dotenv import load_dotenv
 from langgraph.constants import END
 from langgraph.graph import StateGraph
 
+from config.bailian_mcp_config import mcp_config
 from processor.query_processor.nodes.node_answer_output import NodeAnswerOutput
 from processor.query_processor.nodes.node_item_name_confirm import NodeItemNameConfirm
 from processor.query_processor.nodes.node_rerank import NodeRerank
@@ -41,7 +42,8 @@ class KBQueryWorkflow:
         self.node_item_name_confirm = NodeItemNameConfirm()
         self.node_search_embedding = NodeSearchEmbedding()
         self.node_search_embedding_hyde = NodeSearchEmbeddingHyde()
-        self.node_web_search_mcp = NodeWebSearchMcp()
+        # 联网搜索开关：关闭时不创建该节点（构造本身不联网，但少一个实例更清楚）
+        self.node_web_search_mcp = NodeWebSearchMcp() if mcp_config.enabled else None
         self.node_rrf = NodeRrf()
         self.node_rerank = NodeRerank()
         self.node_answer_output = NodeAnswerOutput()
@@ -53,7 +55,10 @@ class KBQueryWorkflow:
         self.workflow.add_node("node_multi_search", lambda x: x)  # 虚拟节点：多路搜索分叉点（状态不变）
         self.workflow.add_node("node_search_embedding", self.node_search_embedding)  # 向量搜索
         self.workflow.add_node("node_search_embedding_hyde", self.node_search_embedding_hyde)  # 假设性答案向量搜索
-        self.workflow.add_node("node_web_search_mcp", self.node_web_search_mcp)  # 联网搜索
+        # 联网搜索节点：仅当 ENABLE_WEB_SEARCH_MCP 开启时才挂进图里。
+        # 关闭后图里只剩两路召回，前端进度里也不会出现「网络搜索」这一项。
+        if mcp_config.enabled:
+            self.workflow.add_node("node_web_search_mcp", self.node_web_search_mcp)  # 联网搜索
         self.workflow.add_node("node_join", lambda x: {})  # 虚拟节点：多路搜索合并点
         self.workflow.add_node("node_rrf", self.node_rrf)  # 排序
         self.workflow.add_node("node_rerank", self.node_rerank)  # 重排
@@ -102,12 +107,15 @@ class KBQueryWorkflow:
         # 3. 并发执行搜索
         self.workflow.add_edge("node_multi_search", "node_search_embedding")
         self.workflow.add_edge("node_multi_search", "node_search_embedding_hyde")
-        self.workflow.add_edge("node_multi_search", "node_web_search_mcp")
+        if mcp_config.enabled:
+            self.workflow.add_edge("node_multi_search", "node_web_search_mcp")
 
         # 4. 多路搜索结果合并
         self.workflow.add_edge("node_search_embedding", "node_join")
         self.workflow.add_edge("node_search_embedding_hyde", "node_join")
-        self.workflow.add_edge("node_web_search_mcp", "node_join")
+        # 只有挂了联网搜索节点，才需要连它的汇合边；否则 node_join 只等两路
+        if mcp_config.enabled:
+            self.workflow.add_edge("node_web_search_mcp", "node_join")
 
         # 5. 合并 -> 排序 -> 重排 -> 生成 -> 结束
         self.workflow.add_edge("node_join", "node_rrf")

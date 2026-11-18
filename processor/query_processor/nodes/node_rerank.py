@@ -73,7 +73,11 @@ class NodeRerank(NodeBase):
             final_docs.append(format_rrf_doc)
 
         # 2. 获取 web 远程的文档
-        for web_doc in state['web_search_docs']:
+        # 注意：state 里可能根本没有 web_search_docs 这个键（例如
+        # ENABLE_WEB_SEARCH_MCP=0 时联网搜索节点没挂进图里，或者该节点返回空）。
+        # TypedDict 只是类型声明，键不存在时用 [] 直接下标会抛 KeyError，
+        # 所以这里必须用 .get() 兜底成空列表。
+        for web_doc in (state.get('web_search_docs') or []):
 
             format_web_doc = {
                 "content": web_doc['snippet'],
@@ -119,7 +123,13 @@ class NodeRerank(NodeBase):
 
         except Exception as e:
             logger.error(f"Rerank 重排序失败：{str(e)}")
-            return [{**merged_multi_docs,"score":None}]
+            # 【修复】merged_multi_docs 是 list，原来写成 {**merged_multi_docs, "score": None}
+            # 会对 list 做字典解包，立刻抛 TypeError: 'list' object is not a mapping，
+            # 导致“rerank 失败 -> 降级也失败 -> 整个问答挂掉”。
+            # 正确做法是逐条补 score=None，保持 RRF 原有顺序降级返回。
+            # 注意：score=None 会被 _step_3_cliff_cutoff 跳过断崖判断（那里有 None 判断），
+            # 最终取满 RERANK_MAX_TOPK 条，不会崩。
+            return [{**doc, "score": None} for doc in merged_multi_docs]
 
     def _step_3_cliff_cutoff(self, ranked_docs: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         """断崖检测截断：相邻得分差距超过阈值时截断。"""
@@ -133,8 +143,12 @@ class NodeRerank(NodeBase):
         cutoff_pos = upper_bound
 
         # 遍历范围：从min_topk-1到max_topk-2（索引从0开始），检测相邻两个文档的分数差
-        # 例：min_topk=3，max_topk=10 → 遍历i=2,3,4,5,6,7,8（对应第3~9条文档，检测与下一条的差距）
-        for idx in range(lower_bound -1, upper_bound, -1):
+        # 例：min_topk=3，max_topk=10 → 遍历idx=2,3,4,5,6,7,8（对应第3~9条文档，检测与下一条的差距）
+        # 【修复】原来写的是 range(lower_bound-1, upper_bound, -1)：步长为负、stop 却大于 start，
+        # Python 直接返回空序列 ⇒ 循环一次都不执行，cutoff_pos 恒等于 upper_bound，
+        # 断崖检测形同不存在（永远返回满 10 条）。改用正步长，上界取 upper_bound-1，
+        # 保证 idx+1 最大只到 upper_bound-1，不会越界。
+        for idx in range(lower_bound - 1, upper_bound - 1):
             current_score = ranked_docs[idx]['score']
             new_score = ranked_docs[idx + 1]['score']
 

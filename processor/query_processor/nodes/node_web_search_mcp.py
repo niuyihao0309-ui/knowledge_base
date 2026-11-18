@@ -21,6 +21,15 @@ class NodeWebSearchMcp(NodeBase):
     name: str = "node_web_search_mcp"
 
     def process(self, state: QueryGraphState) -> QueryGraphState:
+        # 双保险：正常情况下 mcp_config.enabled=False 时本节点根本不会挂进图里，
+        # 这里再兜一层，防止被直接调用（例如 __main__ 自测、或以后新增的入口）
+        # 时仍然去连 dashscope —— 一旦 key 失效就是 401，会把整个问答拖崩。
+        # 注意：这里不调 add_done_task，因为图里没挂该节点时不存在“运行中”记录，
+        # 补一条“已完成”反而会让前端进度出现一个凭空多出来的步骤。
+        if not mcp_config.enabled:
+            logger.info("联网搜索已关闭（ENABLE_WEB_SEARCH_MCP=0），跳过 MCP 调用")
+            return {"web_search_docs": []}
+
         query = state.get("rewritten_query","")
         docs = []
         # 如果没有查询内容，直接返回
