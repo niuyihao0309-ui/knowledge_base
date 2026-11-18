@@ -3,7 +3,12 @@ import logging
 import re
 from pathlib import Path
 from typing import Tuple, List, Dict
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+# ⚠️ 这里把 RecursiveCharacterTextSplitter 改成**函数内延迟导入**（见 _split_long_section）。
+# 原因：langchain_text_splitters 的 __init__.py 会把全部子模块 eager import 一遍，
+# 其中 sentence_transformers.py 拖进 sentence_transformers -> sklearn -> pandas -> pyarrow
+# 一整条重依赖链。本机实测：在 import_service 启动阶段加载 pyarrow 会卡住几十秒甚至段错误，
+# 服务根本起不来。指到子模块没用（import 子模块照样先执行父包 __init__），
+# 所以只能推迟到真正切分的那一刻再加载 —— 那时服务早起来了，慢一点无所谓。
 from processor.import_processor.base import BaseNode, setup_logging
 from processor.import_processor.exceptions import StateFieldError
 from processor.import_processor.state import ImportGraphState
@@ -141,6 +146,9 @@ class NodeDocumentSplit(BaseNode):
             # 把正文开头的标题删掉，同时清理标题后面多余空格
             # 对正文进行切割
             # langchain递归文本切割器
+        # 延迟导入（原因见文件顶部注释）：只有真正要切超长章节时才加载这个包
+        from langchain_text_splitters import RecursiveCharacterTextSplitter
+
         splitter = RecursiveCharacterTextSplitter(
             chunk_size=available_len,    # 切片长度（扣除标题）
             chunk_overlap=50,             # 重叠部分长度      # 0 会让切分边界处的上下文断裂
