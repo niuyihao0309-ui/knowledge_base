@@ -74,9 +74,11 @@ class NodeBGEEmbedding(BaseNode):
             List[Dict]: 包含向量字段（dense_vector/sparse_vector）的文本切片列表
         """
         # 定义批处理数量
-        # 2026-10-16：本地模型时代为防显存溢出设 3；改走百炼 API 后没有显存压力，
-        # 提到 10 —— 正好是 text-embedding-v4 的单次上限，请求数砍到原来的 1/3，全量重导快很多
-        bath_size = 10
+        # 2026-10-16：本地模型时代为防显存溢出设 3；改走百炼 API 后提到 10（它单次上限就是 10）；
+        # 2026-10-22：换成硅基流动 Qwen3-Embedding-0.6B 后单次能放几十条，
+        # 这里提到 32 与 .env 的 EMBEDDING_MAX_BATCH 对齐 —— 若不改，101 条 chunk 要发 11 次请求，
+        # 改了只要 4 次，导入能快一半左右（向量化本身不慢，慢的是请求往返）
+        bath_size = 32
         # 初始化一个空列表
         output_data = []
 
